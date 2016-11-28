@@ -1,0 +1,182 @@
+---
+title: "Machine Learning - Final Project"
+author: "Carlos Calderon"
+date: "November 27, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Background ##
+
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Goal ##
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+## Data Processing ##
+
+The training data for this project are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+```{r echo=TRUE, results='hide', warning=FALSE, message=FALSE}
+# Load packages needed for the project
+
+library(randomForest)
+library(caret)
+library(rpart)
+
+```
+
+```{r echo=TRUE}
+# Download the raw data from the web
+
+set.seed(12345)
+
+training_raw_data <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing_raw_data <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url(training_raw_data), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testing_raw_data), na.strings=c("NA","#DIV/0!",""))
+
+dim(training)
+#head(training)
+dim(testing)
+#head(training)
+
+exclude_training <- c('X','user_name','raw_timestamp_part_1','raw_timestamp_part_2','cvtd_timestamp','new_window')
+
+```
+
+As per practical machine learning best practice we split the training data set into two, training and testing. 
+
+```{r echo=TRUE}
+inTrain <- createDataPartition(training$classe, p=0.7, list=FALSE)
+training_dataset <- training[inTrain, ]
+testing_dataset <- training[-inTrain, ]
+dim(training_dataset); dim(testing_dataset)
+```
+
+As we saw from the raw data download our data has a lot of 'NAs' and 'Zeros' that we will remove. We assume our model will still provide a good enough prediction which is to be confirmed later on.
+
+```{r echo=TRUE}
+# We clean the data by removing NA, Zeroes and Variables not needed for the model.
+
+cleantraining <- training_dataset[,!(names(training_dataset) %in% exclude_training)]
+
+nzvtraining <- nearZeroVar(cleantraining)
+cleantraining <- cleantraining[,-nzvtraining]
+
+filterData <- function(cleaned) {
+    noNA <- !sapply(cleaned, function(x) any(is.na(x)))
+    cleaned <- cleaned[, noNA]
+    noBlank <- !sapply(cleaned, function(x) any(x==""))
+    cleaned <- cleaned[, noBlank]
+}
+
+cleantraining <- filterData(cleantraining)
+finalcleantraining <- cleantraining
+dim(finalcleantraining)
+
+# Same cleaning process for the testing data set
+
+cleantesting <- testing_dataset[,!(names(testing_dataset) %in% exclude_training)]
+
+nzvtesting <- nearZeroVar(cleantesting)
+cleantesting <- cleantesting[,-nzvtesting]
+cleantesting <- filterData(cleantesting)
+finalcleantesting <- cleantesting
+dim(finalcleantesting)
+
+```
+
+
+## Model Selection ##
+
+From lecture and class notes we have a good idea to start with boosting and or random forests as both are some of the most widely used techniques. Therefore, we will test these 2 models first. We will start with Boosting and follow with Random Forest. For completeness we will add a classification tree to compare against a third model. We are looking for accuracies greater than 90% using confustion matrix function.
+
+# Boosting #
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+# Generate model by using the final clean training dataset
+fitControl <- trainControl(method = "repeatedcv",number = 5, repeats = 1)
+modFitBoost <- train(classe ~ ., data=finalcleantraining, method = "gbm", trControl = fitControl, verbose = FALSE)
+
+# Apply model to final clean testing data set
+predictionBoost <- predict(modFitBoost, newdata=finalcleantesting)
+CMBoost <- confusionMatrix(predictionBoost, finalcleantesting$classe)
+CMBoost
+
+```
+
+
+# Random Forest #
+
+```{r echo=TRUE}
+# Generate model by using the final clean training dataset
+modFitRF <- randomForest(classe ~ ., data=finalcleantraining)
+
+# Apply model to final clean testing data set
+predictionRF <- predict(modFitRF, finalcleantesting, type = "class")
+CMRF <- confusionMatrix(predictionRF, finalcleantesting$classe)
+CMRF
+
+```
+
+# Classification Tree #
+
+```{r echo=TRUE}
+# Generate model by using the final clean training dataset
+modFitTree <- rpart(classe ~ ., data=finalcleantraining, method="class")
+     
+# Apply model to final clean testing data set
+predictionTree <- predict(modFitTree, finalcleantesting, type="class")
+CMtree <- confusionMatrix(predictionTree, finalcleantesting$classe)
+CMtree
+
+```
+
+
+### Conclusion ###
+
+Out of the three models Random Forest has the best accuracy at 99.5%. 
+
+```{r echo=TRUE}
+# We calculate our out of sample error using 1 minus accuracy
+
+outofsample_error <- 1 - CMRF$overall[1]
+outofsample_error
+print(paste("Out of Error Sample is: ", outofsample_error_error * 100, "%"))
+```
+
+Therefore, we will use the Random Forest model on the original testing raw data
+```{r echo=TRUE}
+# Now we fit our Random Forest model to the original testing raw data
+
+prediction_originaltesting_RF <- predict(modFitRF, testing, type = "class")
+
+# Write the results to a text file for submission
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+pml_write_files(prediction_originaltesting_RF)
+
+```
+
+
+
